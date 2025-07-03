@@ -51,9 +51,15 @@ class File:
         """
         Get metadata
         """
-        out = subprocess.run([self._get_exiftool_path(), '-json', self.path],
-                                 check=True, stdout=subprocess.PIPE).stdout
-        self._all_metadata = json.loads(out.decode('utf-8'))[0]
+        try:
+            out = subprocess.run([self._get_exiftool_path(), '-json', self.path],
+                                    check=True, stdout=subprocess.PIPE).stdout
+        except subprocess.CalledProcessError:
+            # FIXME: improve error handling?
+            print("Exiftool can't parse {}".format(self.path))
+            self._all_metadata = {}
+        else:
+            self._all_metadata = json.loads(out.decode('utf-8'))[0]
 
     @property
     def all_metadata(self) -> Dict[str, Any]:
