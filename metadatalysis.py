@@ -28,6 +28,8 @@ META_SENSITIVE = ["Creator", "Author", "Last Modified By", "Hyperlinks", "Creato
 # Get files in files
 # Extract data in structure format: user name, GPS coordinates, camera models
      # Camera model : LensSerialNumber / SerialNumber
+     # Name : Artist Author By-line Creator
+     # Software: Creator CreatorTool
 
 class File:
     def __init__(self, path: str):
@@ -133,17 +135,21 @@ class File:
             logging.getLogger('pypdf').setLevel(logging.CRITICAL)
             reader = PdfReader(self.path)
             for page in reader.pages:
-                for img in page.images:
-                    temp_file_fd, temp_file_path = tempfile.mkstemp()
-                    with open(temp_file_path, "wb+") as f:
-                        f.write(img.data)
-                    # Create a new file
-                    nf = File(temp_file_path)
-                    nf.get_metadata()
-                    nf.sha256
-                    nf.filename = img.name
-                    self._children.append(nf)
-                    os.remove(temp_file_path)
+                try:
+                    for img in page.images:
+                        temp_file_fd, temp_file_path = tempfile.mkstemp()
+                        with open(temp_file_path, "wb+") as f:
+                            f.write(img.data)
+                        # Create a new file
+                        nf = File(temp_file_path)
+                        nf.get_metadata()
+                        nf.sha256
+                        nf.filename = img.name
+                        self._children.append(nf)
+                        os.remove(temp_file_path)
+                    # Sometimes pypdf fails
+                except:
+                    pass
         # TODO: PPTX
         elif self.mime_type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]:
