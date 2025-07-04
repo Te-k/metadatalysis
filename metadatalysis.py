@@ -134,8 +134,8 @@ class File:
 
             logging.getLogger('pypdf').setLevel(logging.CRITICAL)
             reader = PdfReader(self.path)
-            for page in reader.pages:
-                try:
+            try:
+                for page in reader.pages:
                     for img in page.images:
                         temp_file_fd, temp_file_path = tempfile.mkstemp()
                         with open(temp_file_path, "wb+") as f:
@@ -147,9 +147,9 @@ class File:
                         nf.filename = img.name
                         self._children.append(nf)
                         os.remove(temp_file_path)
-                    # Sometimes pypdf fails
-                except:
-                    pass
+            # Sometimes pypdf fails
+            except:
+                pass
         # TODO: PPTX
         elif self.mime_type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]:
