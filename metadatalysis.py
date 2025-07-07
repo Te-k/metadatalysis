@@ -28,8 +28,11 @@ META_SENSITIVE = ["Creator", "Author", "Last Modified By", "Hyperlinks", "Creato
 # Get files in files
 # Extract data in structure format: user name, GPS coordinates, camera models
      # Camera model : LensSerialNumber / SerialNumber
-     # Name : Artist Author By-line Creator
-     # Software: Creator CreatorTool
+     # Name : Artist Author By-line Creator XPAuthor LastModifiedBy ImageCreatorName
+     # Software: Creator CreatorTool WriterName Software ReaderName OriginatingProgram HistorySoftwareAgent Encoder Application
+     # Device : Model Make LensSerialNumber LensModel LensMake LensID Lens
+     # Location : GPSAltitude	GPSAltitudeRef	GPSLatitude	GPSLatitudeRef	GPSLongitude	GPSLongitudeRef	GPSPosition
+
 
 class File:
     def __init__(self, path: str):
@@ -148,7 +151,7 @@ class File:
                         self._children.append(nf)
                         os.remove(temp_file_path)
             # Sometimes pypdf fails
-            except:
+            except: # noqa: E722
                 pass
         # TODO: PPTX
         elif self.mime_type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -227,11 +230,14 @@ def get_file_data(fpath: str, content: str = "useful", children: bool = False) -
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Process some files to extract metadata')
     parser.add_argument('PATH', help="Folder or file path")
-    parser.add_argument('--output', '-o', help="Store data in output file")
-    parser.add_argument('--format', '-f', default="csv", help="Output format")
+    parser.add_argument('--output', '-o', help="Store data in output file", action='append')
+    #parser.add_argument('--format', '-f', default="csv", help="Output format")
     parser.add_argument('--level', '-l', default="useful",
                         choices = ["all", "useful", "sensitive"],
                         help="How much metadata do you want?")
+    parser.add_argument('--display', '-d', default="useful",
+                        choices = ["all", "useful", "file", "none"],
+                        help="What do you want displayed?")
     parser.add_argument('--children', '-c', action="store_true", help="Tries to parse metadata of files within files")
     args = parser.parse_args()
 
@@ -249,62 +255,72 @@ if __name__ == "__main__":
             for file in files:
                 fpath = os.path.join(root, file)
                 fdata = get_file_data(fpath, args.level, args.children)
-                if len(fdata["metadata"]) > 0:
+                if args.display == "file":
+                    print(fpath)
+                elif args.display == "useful":
+                    if len(fdata["metadata"]) > 0:
+                        print("{} : {}".format(fpath, json.dumps(fdata["metadata"], indent=4)))
+                elif args.display == "all":
                     print("{} : {}".format(fpath, json.dumps(fdata["metadata"], indent=4)))
+
                 for child in fdata.get("children", []):
-                    if len(child["metadata"]) > 0:
+                    if args.display == "all":
                         print("{} / {} : {}".format(fpath, child["name"], json.dumps(child["metadata"], indent=4)))
+                    elif args.display == "useful":
+                        if len(child["metadata"]) > 0:
+                            print("{} / {} : {}".format(fpath, child["name"], json.dumps(child["metadata"], indent=4)))
 
                 output_data.append(fdata)
     else:
         print("Invalid path, quitting")
 
+    if args.output is not None and len(output_data) > 0:
+        for output in args.output:
+            if output.endswith(".json"):
+                with open(output, "w+") as f:
+                    f.write(json.dumps(output_data, indent=4))
 
-    if args.output and len(output_data) > 0:
-        output_format = args.format
-        if args.output.endswith(".json"):
-            output_format = "json"
+                print("Output written in {}".format(output))
 
-        if output_format == "json":
-            with open(args.output, "w+") as f:
-                f.write(json.dumps(output_data, indent=4))
-        elif output_format == "csv":
-            # Get full list of unique keys
-            output_keys = []
-            for entry in output_data:
-                for k in entry["metadata"]:
-                    output_keys.append(k)
-                if "children" in entry:
-                    for child in entry["children"]:
-                        for k in child["metadata"]:
-                            output_keys.append(k)
-            output_keys = sorted(list(set(output_keys)))
-
-            with open(args.output, 'w+') as csvfile:
-                writer = csv.writer(csvfile)
-                writer.writerow(["Path", "Name", "SHA256", "MIME"] + output_keys)
+            elif output.endswith("csv"):
+                # Get full list of unique keys
+                output_keys = []
                 for entry in output_data:
-                    if len(entry["metadata"]) == 0:
-                        continue
-                    line = [entry["path"], entry["name"], entry["sha256"], entry["mime_type"]]
-                    for k in output_keys:
-                        if k in entry["metadata"]:
-                            line.append(entry["metadata"][k])
-                        else:
-                            line.append("")
-                    writer.writerow(line)
+                    for k in entry["metadata"]:
+                        output_keys.append(k)
+                    if "children" in entry:
+                        for child in entry["children"]:
+                            for k in child["metadata"]:
+                                output_keys.append(k)
+                output_keys = sorted(list(set(output_keys)))
 
-                    # Then children
-                    for child in entry.get("children", []):
-                        if len(child["metadata"]) == 0:
+                with open(output, 'w+') as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerow(["Path", "Name", "SHA256", "MIME"] + output_keys)
+                    for entry in output_data:
+                        if len(entry["metadata"]) == 0:
                             continue
-
-                        line = [entry["path"], entry["name"] + " / " + child["name"], child["sha256"], child["mime_type"]]
+                        line = [entry["path"], entry["name"], entry["sha256"], entry["mime_type"]]
                         for k in output_keys:
-                            if k in child["metadata"]:
-                                line.append(child["metadata"][k])
+                            if k in entry["metadata"]:
+                                line.append(entry["metadata"][k])
                             else:
                                 line.append("")
                         writer.writerow(line)
 
-        print("Output written in {}".format(args.output))
+                        # Then children
+                        for child in entry.get("children", []):
+                            if len(child["metadata"]) == 0:
+                                continue
+
+                            line = [entry["path"], entry["name"] + " / " + child["name"], child["sha256"], child["mime_type"]]
+                            for k in output_keys:
+                                if k in child["metadata"]:
+                                    line.append(child["metadata"][k])
+                                else:
+                                    line.append("")
+                            writer.writerow(line)
+                print("Output written in {}".format(output))
+            else:
+                print("Output format unknown for {}, skipping".format(output))
+
