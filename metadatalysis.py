@@ -13,28 +13,44 @@ from typing import Dict, Any, Optional, List, Self
 
 
 # List of system metadata, irrelevant here
-EXIFTOOL_META_ALLOWLIST = ["ExifToolVersion", "Directory", "ExifToolVersion", "FileAccessDate",
-                    "FileInodeChangeDate", "FileModifyDate", "FileName", "FileType", "SourceFile",
-                    "FilePermissions", "FileSize", "FileTypeExtension", "MIMEType"]
+EXIFTOOL_META_ALLOWLIST = [
+    "ExifToolVersion",
+    "Directory",
+    "ExifToolVersion",
+    "FileAccessDate",
+    "FileInodeChangeDate",
+    "FileModifyDate",
+    "FileName",
+    "FileType",
+    "SourceFile",
+    "FilePermissions",
+    "FileSize",
+    "FileTypeExtension",
+    "MIMEType",
+]
 
 META_ALLOWLIST = None
 
-META_SENSITIVE = ["Creator", "Author", "Last Modified By", "Hyperlinks", "Creator Tool",
-    "Producer", "Software", "Camera Model Name", "Image Description", "Make",
-    "Camera ID", "GPS Position", "Formatted GPS Position", "Map Link"]
+META_SENSITIVE = None
 
 # TODO:
 # Get list of sensitive metadata from file
 # Get files in files
 # Extract data in structure format: user name, GPS coordinates, camera models
-     # Camera model : LensSerialNumber / SerialNumber
-     # Name : Artist Author By-line Creator XPAuthor LastModifiedBy ImageCreatorName
-     # Software: Creator CreatorTool WriterName Software ReaderName OriginatingProgram HistorySoftwareAgent Encoder Application
-     # Device : Model Make LensSerialNumber LensModel LensMake LensID Lens
-     # Location : GPSAltitude	GPSAltitudeRef	GPSLatitude	GPSLatitudeRef	GPSLongitude	GPSLongitudeRef	GPSPosition
+# Camera model : LensSerialNumber / SerialNumber
+# Name : Artist Author By-line Creator XPAuthor LastModifiedBy ImageCreatorName
+# Software: Creator CreatorTool WriterName Software ReaderName
+# OriginatingProgram HistorySoftwareAgent Encoder Application EncodedBy
+# Device : Model Make LensSerialNumber LensModel LensMake LensID Lens
+# Location : GPSAltitude	GPSAltitudeRef	GPSLatitude	GPSLatitudeRef
+# GPSLongitude	GPSLongitudeRef	GPSPosition
 
 
 class File:
+    """
+    File object, allows to easily extract metadata
+    """
+
     def __init__(self, path: str):
         self._path = path
         self._all_metadata: Optional[Dict[str, Any]] = None
@@ -47,12 +63,16 @@ class File:
     def children(self) -> List[Self]:
         if self._children is None:
             self.get_children_files()
+        if self._children is None:
+            return []
         return self._children
 
     @property
     def mime_type(self) -> str:
         if self._mime_type is None:
             self.get_metadata()
+        if self._mime_type is None:
+            return ""
         return self._mime_type
 
     @property
@@ -75,21 +95,24 @@ class File:
         """
         Check if file exists
         """
-        return os.file.isfile(self.path)
+        return os.path.isfile(self.path)
 
     def get_metadata(self) -> None:
         """
         Get metadata
         """
         try:
-            out = subprocess.run([self._get_exiftool_path(), '-json', self.path],
-                                    check=True, stdout=subprocess.PIPE).stdout
+            out = subprocess.run(
+                [self._get_exiftool_path(), "-json", self.path],
+                check=True,
+                stdout=subprocess.PIPE,
+            ).stdout
         except subprocess.CalledProcessError:
             # FIXME: improve error handling?
             print("Exiftool can't parse {}".format(self.path))
             self._all_metadata = {}
         else:
-            self._all_metadata = json.loads(out.decode('utf-8'))[0]
+            self._all_metadata = json.loads(out.decode("utf-8"))[0]
             self._mime_type = self.all_metadata["MIMEType"]
             for key in EXIFTOOL_META_ALLOWLIST:
                 self._all_metadata.pop(key, None)
@@ -99,6 +122,9 @@ class File:
         if self._all_metadata is None:
             self.get_metadata()
 
+        if self._all_metadata is None:
+            return {}
+
         return self._all_metadata
 
     @property
@@ -106,19 +132,25 @@ class File:
         if self._all_metadata is None:
             self.get_metadata()
 
+        if self._all_metadata is None:
+            return {}
+
         m = self._all_metadata
-        for key in META_ALLOWLIST:
-            m.pop(key, None)
+        if META_ALLOWLIST:
+            for key in META_ALLOWLIST:
+                m.pop(key, None)
         return m
 
     @property
     def sensitive_metadata(self) -> Dict[str, Any]:
-        if self._metadata is None:
+        if self._all_metadata is None:
             self.get_metadata()
-        meta = {}
-        for key in META_SENSITIVE:
-            if key in self._metadata:
-                meta[key] = self._metadata[key]
+
+        meta: Dict[str, Any] = {}
+        if self._all_metadata is not None and META_SENSITIVE is not None:
+            for key in META_SENSITIVE:
+                if key in self._all_metadata:
+                    meta[key] = self._all_metadata[key]
 
         return meta
 
@@ -135,12 +167,12 @@ class File:
                 print("Impossible to find pypdf, please install it")
                 sys.exit(1)
 
-            logging.getLogger('pypdf').setLevel(logging.CRITICAL)
+            logging.getLogger("pypdf").setLevel(logging.CRITICAL)
             reader = PdfReader(self.path)
             try:
                 for page in reader.pages:
                     for img in page.images:
-                        temp_file_fd, temp_file_path = tempfile.mkstemp()
+                        _, temp_file_path = tempfile.mkstemp()
                         with open(temp_file_path, "wb+") as f:
                             f.write(img.data)
                         # Create a new file
@@ -148,29 +180,35 @@ class File:
                         nf.get_metadata()
                         nf.sha256
                         nf.filename = img.name
-                        self._children.append(nf)
+                        self._children.append(nf)  # type: ignore
                         os.remove(temp_file_path)
             # Sometimes pypdf fails
-            except: # noqa: E722
+            except:  # noqa: E722
                 pass
-        # TODO: PPTX
-        elif self.mime_type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]:
-            fin = zipfile.ZipFile(self.path)
-            for child in fin.namelist():
-                if not child.startswith("word/media") and not child.startswith("xl/media"):
-                    continue
-                temp_file_fd, temp_file_path = tempfile.mkstemp()
-                with fin.open(child, "r") as f:
-                    with open(temp_file_path, "wb+") as fout:
-                        fout.write(f.read())
+        elif self.mime_type in [
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ]:
+            with zipfile.ZipFile(self.path) as fin:
+                for child in fin.namelist():
+                    if (
+                        not child.startswith("word/media")
+                        and not child.startswith("xl/media")
+                        and not child.startswith("ppt/media/")
+                    ):
+                        continue
+                    _, temp_file_path = tempfile.mkstemp()
+                    with fin.open(child, "r") as f:
+                        with open(temp_file_path, "wb+") as fout:
+                            fout.write(f.read())
 
-                nf = File(temp_file_path)
-                nf.get_metadata()
-                nf.sha256
-                nf.filename = child
-                self._children.append(nf)
-                os.remove(temp_file_path)
+                    nf = File(temp_file_path)
+                    nf.get_metadata()
+                    nf.sha256
+                    nf.filename = child
+                    self._children.append(nf)  # type: ignore
+                    os.remove(temp_file_path)
 
     @functools.lru_cache()
     def _get_exiftool_path(self) -> str:  # pragma: no cover
@@ -179,8 +217,8 @@ class File:
         https://github.com/tpet/mat2/blob/master/libmat2/exiftool.py
         """
         possible_pathes = {
-            '/usr/bin/exiftool',              # debian/fedora
-            '/usr/bin/vendor_perl/exiftool',  # archlinux
+            "/usr/bin/exiftool",  # debian/fedora
+            "/usr/bin/vendor_perl/exiftool",  # archlinux
         }
 
         for possible_path in possible_pathes:
@@ -191,9 +229,18 @@ class File:
         raise RuntimeError("Unable to find exiftool")
 
 
-def get_file_data(fpath: str, content: str = "useful", children: bool = False) -> Dict[str, Any]:
+def get_file_data(
+    fpath: str, content: str = "useful", children: bool = False
+) -> Dict[str, Any]:
+    """
+    Get data about a a file using the File method above
+    :param fpath: path of the file
+    :param content: type of content returned (all, useful, sensitive)
+    :param children: extract children from files
+    :return: dictionary
+    """
     f = File(fpath)
-    fdata = {
+    fdata: Dict[str, Any] = {
         "path": fpath,
         "name": f.filename,
         "sha256": f.sha256,
@@ -210,11 +257,11 @@ def get_file_data(fpath: str, content: str = "useful", children: bool = False) -
         f.get_children_files()
         fdata["children"] = []
         for child in f.children:
-            cdata = {
+            cdata: Dict[str, Any] = {
                 "path": fpath,
                 "name": child.filename,
                 "sha256": child.sha256,
-                "mime_type": child.mime_type
+                "mime_type": child.mime_type,
             }
             if content == "all":
                 cdata["metadata"] = child.all_metadata
@@ -228,23 +275,47 @@ def get_file_data(fpath: str, content: str = "useful", children: bool = False) -
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Process some files to extract metadata')
-    parser.add_argument('PATH', help="Folder or file path")
-    parser.add_argument('--output', '-o', help="Store data in output file", action='append')
-    #parser.add_argument('--format', '-f', default="csv", help="Output format")
-    parser.add_argument('--level', '-l', default="useful",
-                        choices = ["all", "useful", "sensitive"],
-                        help="How much metadata do you want?")
-    parser.add_argument('--display', '-d', default="useful",
-                        choices = ["all", "useful", "file", "none"],
-                        help="What do you want displayed?")
-    parser.add_argument('--children', '-c', action="store_true", help="Tries to parse metadata of files within files")
+    parser = argparse.ArgumentParser(
+        description="Process some files to extract metadata"
+    )
+    parser.add_argument("PATH", help="Folder or file path")
+    parser.add_argument(
+        "--output", "-o", help="Store data in output file", action="append"
+    )
+    parser.add_argument(
+        "--level",
+        "-l",
+        default="useful",
+        choices=["all", "useful", "sensitive"],
+        help="How much metadata do you want?",
+    )
+    parser.add_argument(
+        "--display",
+        "-d",
+        default="useful",
+        choices=["all", "useful", "file", "none"],
+        help="What do you want displayed?",
+    )
+    parser.add_argument(
+        "--children",
+        "-c",
+        action="store_true",
+        help="Tries to parse metadata of files within files",
+    )
     args = parser.parse_args()
 
+    # Load metadata lists
     script_dir = os.path.dirname(os.path.realpath(__file__))
-    with open(os.path.join(script_dir, "metadata_allowlist.txt"), "r") as f:
-        META_ALLOWLIST = list(set([line.strip() for line in f.read().split()]))
+    with open(
+        os.path.join(script_dir, "metadata_allowlist.txt"), "r", encoding="utf-8"
+    ) as f:
+        META_ALLOWLIST = {line.strip() for line in f.read().split()}
+    with open(
+        os.path.join(script_dir, "metadata_sensitivelist.txt"), "r", encoding="utf-8"
+    ) as f:
+        META_SENSITIVE = {line.strip() for line in f.read().split()}
 
+    # Parse the files
     output_data = []
     if os.path.isfile(args.PATH):
         fdata = get_file_data(args.PATH, args.level, args.children)
@@ -259,28 +330,49 @@ if __name__ == "__main__":
                     print(fpath)
                 elif args.display == "useful":
                     if len(fdata["metadata"]) > 0:
-                        print("{} : {}".format(fpath, json.dumps(fdata["metadata"], indent=4)))
+                        print(
+                            "{} : {}".format(
+                                fpath, json.dumps(fdata["metadata"], indent=4)
+                            )
+                        )
                 elif args.display == "all":
-                    print("{} : {}".format(fpath, json.dumps(fdata["metadata"], indent=4)))
+                    print(
+                        "{} : {}".format(fpath, json.dumps(fdata["metadata"], indent=4))
+                    )
 
                 for child in fdata.get("children", []):
-                    if args.display == "all":
-                        print("{} / {} : {}".format(fpath, child["name"], json.dumps(child["metadata"], indent=4)))
+                    if args.display == "file":
+                        print(f"{fpath} / {child['name']}")
+                    elif args.display == "all":
+                        print(
+                            "{} / {} : {}".format(
+                                fpath,
+                                child["name"],
+                                json.dumps(child["metadata"], indent=4),
+                            )
+                        )
                     elif args.display == "useful":
                         if len(child["metadata"]) > 0:
-                            print("{} / {} : {}".format(fpath, child["name"], json.dumps(child["metadata"], indent=4)))
+                            print(
+                                "{} / {} : {}".format(
+                                    fpath,
+                                    child["name"],
+                                    json.dumps(child["metadata"], indent=4),
+                                )
+                            )
 
                 output_data.append(fdata)
     else:
         print("Invalid path, quitting")
 
+    # Write output if needed
     if args.output is not None and len(output_data) > 0:
         for output in args.output:
             if output.endswith(".json"):
-                with open(output, "w+") as f:
+                with open(output, "w+", encoding="utf-8") as f:
                     f.write(json.dumps(output_data, indent=4))
 
-                print("Output written in {}".format(output))
+                print(f"Output written in {output}")
 
             elif output.endswith("csv"):
                 # Get full list of unique keys
@@ -294,13 +386,18 @@ if __name__ == "__main__":
                                 output_keys.append(k)
                 output_keys = sorted(list(set(output_keys)))
 
-                with open(output, 'w+') as csvfile:
+                with open(output, "w+", encoding="utf-8") as csvfile:
                     writer = csv.writer(csvfile)
                     writer.writerow(["Path", "Name", "SHA256", "MIME"] + output_keys)
                     for entry in output_data:
                         if len(entry["metadata"]) == 0:
                             continue
-                        line = [entry["path"], entry["name"], entry["sha256"], entry["mime_type"]]
+                        line = [
+                            entry["path"],
+                            entry["name"],
+                            entry["sha256"],
+                            entry["mime_type"],
+                        ]
                         for k in output_keys:
                             if k in entry["metadata"]:
                                 line.append(entry["metadata"][k])
@@ -313,14 +410,18 @@ if __name__ == "__main__":
                             if len(child["metadata"]) == 0:
                                 continue
 
-                            line = [entry["path"], entry["name"] + " / " + child["name"], child["sha256"], child["mime_type"]]
+                            line = [
+                                entry["path"],
+                                entry["name"] + " / " + child["name"],
+                                child["sha256"],
+                                child["mime_type"],
+                            ]
                             for k in output_keys:
                                 if k in child["metadata"]:
                                     line.append(child["metadata"][k])
                                 else:
                                     line.append("")
                             writer.writerow(line)
-                print("Output written in {}".format(output))
+                print(f"Output written in {output}")
             else:
-                print("Output format unknown for {}, skipping".format(output))
-
+                print(f"Output format unknown for {output}, skipping")

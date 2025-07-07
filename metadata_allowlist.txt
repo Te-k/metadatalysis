@@ -565,3 +565,15 @@ ZipFileName
 ZipModifyDate
 ZipRequiredVersion
 ZipUncompressedSize
+LegacyIPTCDigest
+Dlref
+CaptionWriter
+MPEGAudioVersion
+AudioLayer
+AudioBitrate
+SampleRate
+ChannelMode
+MSStereo
+IntensityStereo
+Emphasis
+ID3Size
