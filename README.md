@@ -5,7 +5,9 @@ Simple python tool to extract and analyze metadata in a set of documents. Relies
 ## Usage
 
 ```
-usage: metadatalysis.py [-h] [--output OUTPUT] [--level {all,useful,sensitive}] [--display {all,useful,file,none}] [--children] PATH
+usage: metadatalysis.py [-h] [--output OUTPUT] [--level {all,useful,sensitive}] [--display {all,useful,file,none}] [--children]
+                        [--summary SUMMARY]
+                        PATH
 
 Process some files to extract metadata
 
@@ -20,6 +22,8 @@ options:
   --display, -d {all,useful,file,none}
                         What do you want displayed?
   --children, -c        Tries to parse metadata of files within files
+  --summary, -s SUMMARY
+                        Generate and dumps a summary of the data in a given file
 ```
 
 Example: `python metadatanlysis.py FOLDER -c -l all -d file -o metadata.csv -o metadata.json`

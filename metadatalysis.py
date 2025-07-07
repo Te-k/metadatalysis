@@ -33,17 +33,47 @@ META_ALLOWLIST = None
 
 META_SENSITIVE = None
 
-# TODO:
-# Get list of sensitive metadata from file
-# Get files in files
-# Extract data in structure format: user name, GPS coordinates, camera models
-# Camera model : LensSerialNumber / SerialNumber
-# Name : Artist Author By-line Creator XPAuthor LastModifiedBy ImageCreatorName
-# Software: Creator CreatorTool WriterName Software ReaderName
-# OriginatingProgram HistorySoftwareAgent Encoder Application EncodedBy
-# Device : Model Make LensSerialNumber LensModel LensMake LensID Lens
-# Location : GPSAltitude	GPSAltitudeRef	GPSLatitude	GPSLatitudeRef
-# GPSLongitude	GPSLongitudeRef	GPSPosition
+# Structured analysis of metadata
+META_STRUCTURE = {
+    "author": [
+        "Artist",
+        "Author",
+        "By-line",
+        "Creator",
+        "XPAuthor",
+        "LastModifiedBy",
+        "ImageCreatorName",
+    ],
+    "location": [
+        "GPSAltitude",
+        "GPSAltitudeRef",
+        "GPSLatitude",
+        "GPSLatitudeRef",
+        "GPSLongitude",
+        "GPSLongitudeRef",
+        "GPSPosition",
+    ],
+    "device": [
+        "SerialNumber",
+        "LensSerialNumber",
+        "Model",
+        "Make",
+        "LensModel",
+        "LensMake",
+        "LensID",
+        "Lens",
+    ],
+    "software": [
+        "CreatorTool",
+        "WriterName",
+        "Software",
+        "ReaderName",
+        "OriginatingProgram",
+        "Encoder",
+        "Application",
+        "EncodedBy",
+    ],
+}
 
 
 class File:
@@ -79,16 +109,26 @@ class File:
     def path(self) -> str:
         return self._path
 
+    def get_sha256(self):
+        """
+        Extract SHA256 hash of the file
+        """
+        with open(self.path, "rb") as f:
+            sha256 = hashlib.sha256()
+            sha256.update(f.read())
+            self._sha256 = sha256.hexdigest()
+
     @property
     def sha256(self) -> str:
         """
         Return the SHA256 hash of the file
         """
         if self._sha256 is None:
-            with open(self.path, "rb") as f:
-                sha256 = hashlib.sha256()
-                sha256.update(f.read())
-                self._sha256 = sha256.hexdigest()
+            self.get_sha256()
+
+        if self._sha256 is None:
+            return ""
+
         return self._sha256
 
     def exists(self) -> bool:
@@ -178,7 +218,7 @@ class File:
                         # Create a new file
                         nf = File(temp_file_path)
                         nf.get_metadata()
-                        nf.sha256
+                        nf.get_sha256()
                         nf.filename = img.name
                         self._children.append(nf)  # type: ignore
                         os.remove(temp_file_path)
@@ -205,10 +245,52 @@ class File:
 
                     nf = File(temp_file_path)
                     nf.get_metadata()
-                    nf.sha256
+                    nf.get_sha256()
                     nf.filename = child
                     self._children.append(nf)  # type: ignore
                     os.remove(temp_file_path)
+
+    def get_summary(
+        self, content: str = "useful", children: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Generate a summary of the metadata in this file
+
+        :param content: level of metadata needed (all, useful, sensitive)
+        :param children: extract data from children or not
+        :return: dictionary
+        """
+        fdata: Dict[str, Any] = {
+            "path": self._path,
+            "name": self.filename,
+            "sha256": self.sha256,
+            "mime_type": self.mime_type,
+        }
+        if content == "all":
+            fdata["metadata"] = self.all_metadata
+        elif content == "sensitive":
+            fdata["metadata"] = self.sensitive_metadata
+        else:
+            fdata["metadata"] = self.metadata
+
+        if children:
+            fdata["children"] = []
+            for child in self.children:
+                cdata: Dict[str, Any] = {
+                    "path": self.path,
+                    "name": child.filename,
+                    "sha256": child.sha256,
+                    "mime_type": child.mime_type,
+                }
+                if content == "all":
+                    cdata["metadata"] = child.all_metadata
+                elif content == "sensitive":
+                    cdata["metadata"] = child.sensitive_metadata
+                else:
+                    cdata["metadata"] = child.metadata
+                fdata["children"].append(cdata)
+
+        return fdata
 
     @functools.lru_cache()
     def _get_exiftool_path(self) -> str:  # pragma: no cover
@@ -229,52 +311,8 @@ class File:
         raise RuntimeError("Unable to find exiftool")
 
 
-def get_file_data(
-    fpath: str, content: str = "useful", children: bool = False
-) -> Dict[str, Any]:
-    """
-    Get data about a a file using the File method above
-    :param fpath: path of the file
-    :param content: type of content returned (all, useful, sensitive)
-    :param children: extract children from files
-    :return: dictionary
-    """
-    f = File(fpath)
-    fdata: Dict[str, Any] = {
-        "path": fpath,
-        "name": f.filename,
-        "sha256": f.sha256,
-        "mime_type": f.mime_type,
-    }
-    if content == "all":
-        fdata["metadata"] = f.all_metadata
-    elif content == "sensitive":
-        fdata["metadata"] = f.sensitive_metadata
-    else:
-        fdata["metadata"] = f.metadata
-
-    if children:
-        f.get_children_files()
-        fdata["children"] = []
-        for child in f.children:
-            cdata: Dict[str, Any] = {
-                "path": fpath,
-                "name": child.filename,
-                "sha256": child.sha256,
-                "mime_type": child.mime_type,
-            }
-            if content == "all":
-                cdata["metadata"] = child.all_metadata
-            elif content == "sensitive":
-                cdata["metadata"] = child.sensitive_metadata
-            else:
-                cdata["metadata"] = child.metadata
-            fdata["children"].append(cdata)
-
-    return fdata
-
-
 if __name__ == "__main__":
+    # Parser
     parser = argparse.ArgumentParser(
         description="Process some files to extract metadata"
     )
@@ -302,6 +340,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Tries to parse metadata of files within files",
     )
+    parser.add_argument(
+        "--summary",
+        "-s",
+        help="Generate and dumps a summary of the data in a given file",
+    )
     args = parser.parse_args()
 
     # Load metadata lists
@@ -318,14 +361,16 @@ if __name__ == "__main__":
     # Parse the files
     output_data = []
     if os.path.isfile(args.PATH):
-        fdata = get_file_data(args.PATH, args.level, args.children)
+        file = File(args.PATH)
+        fdata = file.get_summary(args.level, args.children)
         print(json.dumps(fdata, indent=4))
         output_data.append(fdata)
     elif os.path.isdir(args.PATH):
         for root, dirs, files in os.walk(args.PATH):
             for file in files:
                 fpath = os.path.join(root, file)
-                fdata = get_file_data(fpath, args.level, args.children)
+                file = File(fpath)
+                fdata = file.get_summary(args.level, args.children)
                 if args.display == "file":
                     print(fpath)
                 elif args.display == "useful":
@@ -364,6 +409,46 @@ if __name__ == "__main__":
                 output_data.append(fdata)
     else:
         print("Invalid path, quitting")
+
+    # Make a summary of the data
+    if args.summary is not None:
+        summary: Dict[str, Any] = {}
+        for data_type, keys in META_STRUCTURE.items():
+            summary[data_type] = {}
+            # For each metadata name
+            for mname in keys:
+                # Got through files and search for it
+                for entry in output_data:
+                    if mname in entry["metadata"]:
+                        if entry["metadata"][mname] in summary[data_type]:
+                            if (
+                                entry["path"]
+                                not in summary[data_type][entry["metadata"][mname]]
+                            ):
+                                summary[data_type][entry["metadata"][mname]].append(
+                                    entry["path"]
+                                )
+                        else:
+                            summary[data_type][entry["metadata"][mname]] = [
+                                entry["path"]
+                            ]
+                    for child in entry.get("children", []):
+                        if mname in child["metadata"]:
+                            fname = f"{entry['path']} {child['name']}"
+                            if child["metadata"][mname] in summary[data_type]:
+                                if (
+                                    fname
+                                    not in summary[data_type][child["metadata"][mname]]
+                                ):
+                                    summary[data_type][child["metadata"][mname]].append(
+                                        fname
+                                    )
+                            else:
+                                summary[data_type][child["metadata"][mname]] = [fname]
+
+        print(json.dumps(summary, indent=4))
+        with open(args.summary, "w+", encoding="utf-8") as f:
+            f.write(json.dumps(summary, indent=4))
 
     # Write output if needed
     if args.output is not None and len(output_data) > 0:
