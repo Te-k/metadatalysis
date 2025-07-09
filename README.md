@@ -32,6 +32,11 @@ Example: `python metadatanlysis.py FOLDER -c -l all -d file -o metadata.csv -o m
 
 If you encounter the issue of having too many files opened, just `ulimit -Sn 10000`
 
+## Limitations
+
+* Images are extracted from only pdf, xlsx, pptx and docx documents
+* PDF analysis is using [pypdf](https://pypi.org/project/pypdf/) which is slow and sometimes crashes
+
 ## Similar Projects
 
 * [MetaDetective](https://github.com/franckferman/MetaDetective) does a similar thing

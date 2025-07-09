@@ -72,6 +72,8 @@ META_STRUCTURE = {
         "Encoder",
         "Application",
         "EncodedBy",
+        "ProcessingSoftware",
+        "Producer",
     ],
 }
 
@@ -91,6 +93,10 @@ class File:
 
     @property
     def children(self) -> List[Self]:
+        """
+        Access to children of the file
+        If they weren't parsed before, parsed here
+        """
         if self._children is None:
             self.get_children_files()
         if self._children is None:
@@ -99,6 +105,9 @@ class File:
 
     @property
     def mime_type(self) -> str:
+        """
+        Access mime type of the file
+        """
         if self._mime_type is None:
             self.get_metadata()
         if self._mime_type is None:
@@ -107,6 +116,9 @@ class File:
 
     @property
     def path(self) -> str:
+        """
+        Access file path
+        """
         return self._path
 
     def get_sha256(self):
@@ -159,6 +171,9 @@ class File:
 
     @property
     def all_metadata(self) -> Dict[str, Any]:
+        """
+        Get all metadata from the file
+        """
         if self._all_metadata is None:
             self.get_metadata()
 
@@ -169,6 +184,9 @@ class File:
 
     @property
     def metadata(self) -> Dict[str, Any]:
+        """
+        Get metadata from the file removing the useless entries from the allowlist
+        """
         if self._all_metadata is None:
             self.get_metadata()
 
@@ -183,6 +201,9 @@ class File:
 
     @property
     def sensitive_metadata(self) -> Dict[str, Any]:
+        """
+        Get only sensitive metadata from the file
+        """
         if self._all_metadata is None:
             self.get_metadata()
 
@@ -197,7 +218,7 @@ class File:
     def get_children_files(self) -> None:
         """
         Get files in the file
-        For now, supports : pdf
+        For now, supports : pdf, docx, xlsx, pptx
         """
         self._children = []
         if self.mime_type == "application/pdf":
